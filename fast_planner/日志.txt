@@ -1,0 +1,3 @@
+首先由uav_simulator->map_generator->random_forest_sensing.cpp通过话题(/map_generator/global_cloud) 也就是随机的全局地图(在40x20x5的地图上随机生成障碍物)
+生成的障碍物ros点云被local_sensing->pointcloud_render_node.cpp通过话题重映射为"~global_map"并接收。接收后先体素化采样，然后接收odom以odom为中心，5为半径找到实时的局部地图，再根据航向去掉一部分点云，然后再转为ros点云发布出去。话题为"/pcl_render_node/cloud"
+/pcl_render_node/cloud话题重映射为/sdf_map/cloud被plan_env->sdf_map.cpp接收，对点进行了膨胀，对地图进行了进一步精简。局部地图更新后进而更新ESDF地图(其实就是得到距离信息，但是我也没太搞懂),将地图通过话题/sdf_map/occupancy_inflate发布出去
