@@ -27,6 +27,7 @@ class PathNode {
  public:
   /* -------------------- */
   Eigen::Vector3i index;
+  //存放pos和vel
   Eigen::Matrix<double, 6, 1> state;
   double g_score, f_score;
   Eigen::Vector3d input;
@@ -46,6 +47,7 @@ class PathNode {
 };
 typedef PathNode* PathNodePtr;
 
+//比较算法
 class NodeComparator {
  public:
   bool operator()(PathNodePtr node1, PathNodePtr node2) {
@@ -69,6 +71,12 @@ struct matrix_hash : std::unary_function<T, size_t> {
 class NodeHashTable {
  private:
   /* data */
+  /*
+    std::unordered_map 是C++标准库中的一个容器类，用于实现无序的键-值对（key-value）映射
+    Eigen::Vector3i 是作为键（key）的类型
+    PathNodePtr 是作为值（value）的类型
+    matrix_hash<Eigen::Vector3i> 是用于指定自定义哈希函数的类型，用于计算 Eigen::Vector3i 类型对象的哈希值
+  */
   std::unordered_map<Eigen::Vector3i, PathNodePtr, matrix_hash<Eigen::Vector3i>>
       data_3d_;
   std::unordered_map<Eigen::Vector4i, PathNodePtr, matrix_hash<Eigen::Vector4i>>
@@ -86,6 +94,8 @@ class NodeHashTable {
   }
 
   PathNodePtr find(Eigen::Vector3i idx) {
+    //.find()函数接受一个参数，该参数是要查找的元素的值或键（对于关联容器）。
+    //它返回一个迭代器，指向第一个匹配的元素（或键）位置，如果没有找到匹配的元素，它将返回容器的end()迭代器。
     auto iter = data_3d_.find(idx);
     return iter == data_3d_.end() ? NULL : iter->second;
   }
@@ -107,6 +117,11 @@ class KinodynamicAstar {
   vector<PathNodePtr> path_node_pool_;
   int use_node_num_, iter_num_;
   NodeHashTable expanded_nodes_;
+  /*
+    PathNodePtr 是存储在队列中的元素类型
+    std::vector<PathNodePtr> 是底层容器的类型
+    odeComparator 是一个自定义的比较函数对象，用于确定元素之间的优先级
+  */
   std::priority_queue<PathNodePtr, std::vector<PathNodePtr>, NodeComparator>
       open_set_;
   std::vector<PathNodePtr> path_nodes_;
@@ -143,7 +158,11 @@ class KinodynamicAstar {
   /* shot trajectory */
   vector<double> cubic(double a, double b, double c, double d);
   vector<double> quartic(double a, double b, double c, double d, double e);
+
+  vector<double> get_value(double a, double b, double c, double d, double e);
+
   bool computeShotTraj(Eigen::VectorXd state1, Eigen::VectorXd state2,
+
                        double time_to_goal);
   double estimateHeuristic(Eigen::VectorXd x1, Eigen::VectorXd x2,
                            double& optimal_time);

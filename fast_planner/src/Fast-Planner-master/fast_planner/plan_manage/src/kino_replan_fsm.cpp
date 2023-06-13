@@ -103,7 +103,7 @@ void KinoReplanFSM::waypointCallback(const nav_msgs::PathConstPtr& msg) {
   //有了目标
   have_target_ = true;
 
-  //有了目标立即转换状态为生成轨迹
+  //有了目标立即转换状态为生成轨迹(这里就改变状态的好处就是及时改变状态，不需要等到FSM函数回调)
   if (exec_state_ == WAIT_TARGET)
     changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
   //如果状态是再执行轨迹就改为重规划
@@ -180,11 +180,13 @@ void KinoReplanFSM::execFSMCallback(const ros::TimerEvent& e) {
 
     case GEN_NEW_TRAJ: {
       start_pt_  = odom_pos_;
+      //因为是开始 所及基本都是(0，0，0)
       start_vel_ = odom_vel_;
       start_acc_.setZero();
 
-      //将四元数转换成矩阵再取前3行3列
+      //将四元数转换成矩阵再取第一列前三个数
       Eigen::Vector3d rot_x = odom_orient_.toRotationMatrix().block(0, 0, 3, 1);
+      //得到偏航角
       start_yaw_(0)         = atan2(rot_x(1), rot_x(0));
       start_yaw_(1) = start_yaw_(2) = 0.0;
 
@@ -333,7 +335,16 @@ void KinoReplanFSM::checkCollisionCallback(const ros::TimerEvent& e) {
   }
 }
 
+//混合A*搜索+
 bool KinoReplanFSM::callKinodynamicReplan() {
+  
+  /*
+    start_pt_=odom的
+    start_vel_=(0，0，0)
+    start_acc_=(0，0，0)
+    end_pt_=自己点的(z默认为1)
+    end_vel_=(0,0,0)
+  */
   bool plan_success =
       planner_manager_->kinodynamicReplan(start_pt_, start_vel_, start_acc_, end_pt_, end_vel_);
 

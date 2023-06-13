@@ -349,6 +349,20 @@ void NonUniformBspline::parameterizeToBspline(const double& ts, const vector<Eig
     cout << "[B-spline]:derivatives error." << endl;
   }
 
+  /*
+    首先B样条曲线有这样的规定：有着N+1个控制点和节点向量(一般为时间节点)[t0,t1,t2......tM]并且为Pb次数的曲线满足：
+    M=N+1+Pb，并且t属于[t(Pb),t(M-Pb)]；
+    由于节点最大下标是M，所以节点数量为M+1=N+1+Pb+1
+    也就是节点数量=控制点数量+阶数(次数+1)；
+    N+1也就是控制点数量=M-Pb
+  */
+  /*
+    这里我们已知Pb=3，离散点数量=K，也就是有K-1段轨迹，t属于[ts,tf],ts=t3，tf=t(M-Pb)下标就是控制点数量
+    可以知道普通的均匀b样条是不会通过起点和终点，这时候就有一个特殊曲线称为clamped-B样条曲线
+    把第一个点和最后一个点重复Pb+1次，也就值在头部，加3个一样的起点，在尾部加3个一样的终点，这样定义域也符合了，也能经过起点和终点了
+    综上所述 tf=t(s+k-1)=t(k+2)=t(M-3)
+    所以M=k+5 一共有K+6个节点， k+2个控制点
+  */
   int K = point_set.size();
 
   // write A
@@ -357,8 +371,10 @@ void NonUniformBspline::parameterizeToBspline(const double& ts, const vector<Eig
   vrow << -1, 0, 1;
   arow << 1, -2, 1;
 
+  //k+2如上所述，k+4是k个离散点，加上起点和终点的速度以及加速度
   Eigen::MatrixXd A = Eigen::MatrixXd::Zero(K + 4, K + 2);
 
+  //
   for (int i = 0; i < K; ++i) A.block(i, i, 1, 3) = (1 / 6.0) * prow.transpose();
 
   A.block(K, 0, 1, 3)         = (1 / 2.0 / ts) * vrow.transpose();

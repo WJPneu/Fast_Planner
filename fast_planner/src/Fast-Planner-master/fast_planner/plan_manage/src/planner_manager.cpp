@@ -140,22 +140,30 @@ bool FastPlannerManager::checkTrajCollision(double& distance) {
 
 // SECTION kinodynamic replanning
 
+//说实话 这个replan我无法理解 不应该是plan吗 加什么re
 bool FastPlannerManager::kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vector3d start_vel,
                                            Eigen::Vector3d start_acc, Eigen::Vector3d end_pt,
                                            Eigen::Vector3d end_vel) {
 
   std::cout << "[kino replan]: -----------------------" << std::endl;
-  cout << "start: " << start_pt.transpose() << ", " << start_vel.transpose() << ", "
-       << start_acc.transpose() << "\ngoal:" << end_pt.transpose() << ", " << end_vel.transpose()
-       << endl;
 
+  ROS_WARN("start: %f, %f, %f, %f, %f, %f, %f, %f, %f",
+  start_pt(0),start_pt(1),start_pt(2),start_vel(0),start_vel(1),start_vel(2),start_acc(0),start_acc(1),start_acc(2));
+  ROS_WARN("goal: %f, %f, %f, %f, %f, %f",
+  end_pt(0),end_pt(1),end_pt(2),end_vel(0),end_vel(1),end_vel(2));
+  // cout << "start:" << start_pt.transpose() << ", " << start_vel.transpose() << ", "
+  //      << start_acc.transpose() << "\ngoal:" << end_pt.transpose() << ", " << end_vel.transpose()
+  //      << endl;
+
+  //如果距离小于0.2m太近了 就不执行
   if ((start_pt - end_pt).norm() < 0.2) {
     cout << "Close goal" << endl;
     return false;
   }
 
   ros::Time t1, t2;
-
+  
+  //记录此时
   local_data_.start_time_ = ros::Time::now();
   double t_search = 0.0, t_opt = 0.0, t_adjust = 0.0;
 
@@ -167,39 +175,53 @@ bool FastPlannerManager::kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vect
 
   t1 = ros::Time::now();
 
+  //重置
   kino_path_finder_->reset();
-
+  /*
+    开始搜寻(这个是init为true)  最最开始搜索的时候加速度都是为0的，所以必然会搜索不出来  
+    但是后面好像还是有一定几率完成的(就是距离很短的时候  <1m)
+    所以 不能丢
+  */
   int status = kino_path_finder_->search(start_pt, start_vel, start_acc, end_pt, end_vel, true);
 
   if (status == KinodynamicAstar::NO_PATH) {
     cout << "[kino replan]: kinodynamic search fail!" << endl;
 
     // retry searching with discontinuous initial state
+    //重置一下
     kino_path_finder_->reset();
+    //init置false再搜索一遍 这个基本都能搜索出来
     status = kino_path_finder_->search(start_pt, start_vel, start_acc, end_pt, end_vel, false);
 
     if (status == KinodynamicAstar::NO_PATH) {
       cout << "[kino replan]: Can't find path." << endl;
       return false;
-    } else {
+    }
+    //这个else包括 reach end和reach horizon
+    else
+    {
       cout << "[kino replan]: retry search success." << endl;
     }
 
   } else {
     cout << "[kino replan]: kinodynamic search success." << endl;
   }
-
+  
+  //以0.01s为间隔 得到离散的轨迹点(世界坐标)
   plan_data_.kino_path_ = kino_path_finder_->getKinoTraj(0.01);
 
   t_search = (ros::Time::now() - t1).toSec();
 
   // parameterize the path to bspline
 
+  //0.5/3    距离/最大速度=最少时间
   double                  ts = pp_.ctrl_pt_dist / pp_.max_vel_;
   vector<Eigen::Vector3d> point_set, start_end_derivatives;
+  //获得采样(ts:规定的时间间隔 point_set：以时间间隔获得的点  start_end_derivatives：起点和终点的速度以及加速度)
   kino_path_finder_->getSamples(ts, point_set, start_end_derivatives);
 
   Eigen::MatrixXd ctrl_pts;
+  //参数设置 对获得的离散点进行B样条曲线拟合
   NonUniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl_pts);
   NonUniformBspline init(ctrl_pts, 3, ts);
 
