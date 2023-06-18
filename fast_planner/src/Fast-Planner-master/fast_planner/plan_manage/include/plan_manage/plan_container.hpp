@@ -221,7 +221,7 @@ public:
   vector<Eigen::Vector3d> local_start_end_derivative_;
 
   // kinodynamic path
-  vector<Eigen::Vector3d> kino_path_;
+  vector<Eigen::Vector3d> kino_path_;//混合A*路径
 
   // topological paths
   list<GraphNode::Ptr> topo_graph_;

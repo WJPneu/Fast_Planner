@@ -74,7 +74,8 @@ void PlanningVisualization::displaySphereList(const vector<Eigen::Vector3d>& lis
   mk.pose.orientation.z = 0.0;
   mk.pose.orientation.w = 1.0;
 
-  //(1 0 0 1)所以是红色
+  // 终点：(1 0 0 1)所以是红色
+  // 混合A* 路径点：1, 1, 0, 0.4 
   mk.color.r = color(0);
   mk.color.g = color(1);
   mk.color.b = color(2);
@@ -204,6 +205,11 @@ void PlanningVisualization::drawBsplinesPhase2(vector<NonUniformBspline>& bsplin
   }
 }
 
+//优化后的B样条曲线可视化
+/*
+  (info->position_traj_, 0.1, Eigen::Vector4d(1.0, 0, 0.0, 1), true, 
+  0.2,Eigen::Vector4d(1, 0, 0, 1))
+*/
 void PlanningVisualization::drawBspline(NonUniformBspline& bspline, double size,
                                         const Eigen::Vector4d& color, bool show_ctrl_pts, double size2,
                                         const Eigen::Vector4d& color2, int id1, int id2) {
@@ -211,12 +217,13 @@ void PlanningVisualization::drawBspline(NonUniformBspline& bspline, double size,
 
   vector<Eigen::Vector3d> traj_pts;
   double                  tm, tmp;
-  bspline.getTimeSpan(tm, tmp);
+  bspline.getTimeSpan(tm, tmp);//获得时间的始末
 
   for (double t = tm; t <= tmp; t += 0.01) {
     Eigen::Vector3d pt = bspline.evaluateDeBoor(t);
     traj_pts.push_back(pt);
   }
+  //B样条轨迹点 红色  改成了绿色
   displaySphereList(traj_pts, size, color, BSPLINE + id1 % 100);
 
   // draw the control point
@@ -230,6 +237,7 @@ void PlanningVisualization::drawBspline(NonUniformBspline& bspline, double size,
     ctp.push_back(pt);
   }
 
+  //控制点 红色？ 
   displaySphereList(ctp, size2, color2, BSPLINE_CTRL_PT + id2 % 100);
 }
 
@@ -326,6 +334,7 @@ void PlanningVisualization::drawGoal(Eigen::Vector3d goal, double resolution,
   displaySphereList(goal_vec, resolution, color, GOAL + id % 100);
 }
 
+//混合A*路径可视化    (plan_data->kino_path_, 0.075, Eigen::Vector4d(1, 1, 0, 0.4))
 void PlanningVisualization::drawGeometricPath(const vector<Eigen::Vector3d>& path, double resolution,
                                               const Eigen::Vector4d& color, int id) {
   displaySphereList(path, resolution, color, PATH + id % 100);

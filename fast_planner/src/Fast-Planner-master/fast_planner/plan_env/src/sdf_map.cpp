@@ -1411,14 +1411,17 @@ void SDFMap::getSurroundPts(const Eigen::Vector3d& pos, Eigen::Vector3d pts[2][2
   }
 
   /* interpolation position */
-  Eigen::Vector3d pos_m = pos - 0.5 * mp_.resolution_ * Eigen::Vector3d::Ones();
+  Eigen::Vector3d pos_m = pos - 0.5 * mp_.resolution_ * Eigen::Vector3d::Ones();//为啥要减一半的分辨率呢
   Eigen::Vector3i idx;
   Eigen::Vector3d idx_pos;
 
   posToIndex(pos_m, idx);
-  indexToPos(idx, idx_pos);
+  indexToPos(idx, idx_pos);//两次转换世界坐标就到了珊格中心
+  
+  //获得转换后的距离*10  ？why
   diff = (pos - idx_pos) * mp_.resolution_inv_;
-
+  
+  //这八个点 感觉 恩？
   for (int x = 0; x < 2; x++) {
     for (int y = 0; y < 2; y++) {
       for (int z = 0; z < 2; z++) {

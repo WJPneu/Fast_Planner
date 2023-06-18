@@ -108,27 +108,33 @@ void FastPlannerManager::setGlobalWaypoints(vector<Eigen::Vector3d>& waypoints) 
   plan_data_.global_waypoints_ = waypoints;
 }
 
+//检测碰撞
 bool FastPlannerManager::checkTrajCollision(double& distance) {
+
 
   double t_now = (ros::Time::now() - local_data_.start_time_).toSec();
 
+  //获得时间的头尾
   double tm, tmp;
   local_data_.position_traj_.getTimeSpan(tm, tmp);
   Eigen::Vector3d cur_pt = local_data_.position_traj_.evaluateDeBoor(tm + t_now);
 
   double          radius = 0.0;
   Eigen::Vector3d fut_pt;
-  double          fut_t = 0.02;
+  double          fut_t = 0.02;//未来时间(预测一下)
 
+  //
   while (radius < 6.0 && t_now + fut_t < local_data_.duration_) {
+    //找到将来的点
     fut_pt = local_data_.position_traj_.evaluateDeBoor(tm + t_now + fut_t);
-
+    //获得距离值
     double dist = edt_environment_->evaluateCoarseEDT(fut_pt, -1.0);
+    //距离值偏小就要注意了
     if (dist < 0.1) {
       distance = radius;
       return false;
     }
-
+    //要不然算出当前点和未来点的距离，时间再加0.02，如此循环直到6m之后
     radius = (fut_pt - cur_pt).norm();
     fut_t += 0.02;
   }
@@ -221,46 +227,71 @@ bool FastPlannerManager::kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vect
   kino_path_finder_->getSamples(ts, point_set, start_end_derivatives);
 
   Eigen::MatrixXd ctrl_pts;
-  //参数设置 对获得的离散点进行B样条曲线拟合
+  //参数设置 对获得的离散点进行B样条曲线拟合 获得控制点ctrl_pts
   NonUniformBspline::parameterizeToBspline(ts, point_set, start_end_derivatives, ctrl_pts);
+
+  //用拟合出的控制点，3以及时间间隔初始化了一个对象叫init 
+  //只能说下面的pos才是正主 QWQ
   NonUniformBspline init(ctrl_pts, 3, ts);
 
   // bspline trajectory optimization
 
   t1 = ros::Time::now();
 
+  //cost_function为正常状态 NORMAL_PHASE就包括 SMOOTHNESS DISTANCE FEASIBILITY
   int cost_function = BsplineOptimizer::NORMAL_PHASE;
 
+  /*
+    如果没有到达终点，就是说只搜索到了边界，目标函数需要加上ENDPOINT优化项，此时的优化变量应该包含最后pb控制点
+    但当前端寻找的路径的状态已经是REACH_END时,由于拟合最后pb个控制点已经能保证位置点约束，
+    因此优化项中不再包含EDNPOINT，优化变量也不再包含最后pb个控制点
+  */
+
+ /*
+    |=按位或赋值运算符。它用于将按位或运算的结果赋值给左操作数。换句话说，它将左操作数与右操作数执行按位或运算，并将结果赋值给左操作数。
+ */
   if (status != KinodynamicAstar::REACH_END) {
     cost_function |= BsplineOptimizer::ENDPOINT;
   }
 
+  //bspline_optimizers_是一个存放b样条优化器的容器  这个[0]是上面reset的,应该是专门用来优化用的
   ctrl_pts = bspline_optimizers_[0]->BsplineOptimizeTraj(ctrl_pts, ts, cost_function, 1, 1);
 
   t_opt = (ros::Time::now() - t1).toSec();
 
   // iterative time adjustment
+  //时间分配优化
 
   t1                    = ros::Time::now();
+
+  //用优化后的控制点，3以及时间间隔初始化了一个对象叫pos
   NonUniformBspline pos = NonUniformBspline(ctrl_pts, 3, ts);
 
+  //获得总的时间
   double to = pos.getTimeSum();
+  //设置最大速度和加速度限制
   pos.setPhysicalLimits(pp_.max_vel_, pp_.max_acc_);
+  //检查可行性 如果速度 加速度都没超过限制 则为 true
   bool feasible = pos.checkFeasibility(false);
 
   int iter_num = 0;
+  //当可行性为false
   while (!feasible && ros::ok()) {
 
+    //进入时间分配(反复调整)
     feasible = pos.reallocateTime();
 
+    //超过三次调整就过
     if (++iter_num >= 3) break;
   }
 
   // pos.checkFeasibility(true);
   // cout << "[Main]: iter num: " << iter_num << endl;
 
+  //获得总时长
   double tn = pos.getTimeSum();
 
+  //如果时间重新分配后的值超过之前的三倍 就输出 error
   cout << "[kino replan]: Reallocate ratio: " << tn / to << endl;
   if (tn / to > 3.0) ROS_ERROR("reallocate error.");
 
@@ -268,6 +299,7 @@ bool FastPlannerManager::kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vect
 
   // save planned results
 
+  //把pos赋值给position_traj_
   local_data_.position_traj_ = pos;
 
   double t_total = t_search + t_opt + t_adjust;
@@ -278,6 +310,7 @@ bool FastPlannerManager::kinodynamicReplan(Eigen::Vector3d start_pt, Eigen::Vect
   pp_.time_optimize_ = t_opt;
   pp_.time_adjust_   = t_adjust;
 
+  //更新轨迹信息
   updateTrajInfo();
 
   return true;
@@ -464,12 +497,20 @@ void FastPlannerManager::refineTraj(NonUniformBspline& best_traj, double& time_i
                                     << " seconds, time change is: " << time_inc);
 }
 
+
+//更新轨迹信息
 void FastPlannerManager::updateTrajInfo() {
+  //获得速度的一些信息
   local_data_.velocity_traj_     = local_data_.position_traj_.getDerivative();
-  local_data_.acceleration_traj_ = local_data_.velocity_traj_.getDerivative();
+  //开始控制点坐标(如果是起始点的话，控制点和b样条点应该是一样的)
   local_data_.start_pos_         = local_data_.position_traj_.evaluateDeBoorT(0.0);
+
+  //获得总时间
   local_data_.duration_          = local_data_.position_traj_.getTimeSum();
-  local_data_.traj_id_ += 1;
+
+  local_data_.acceleration_traj_ = local_data_.velocity_traj_.getDerivative();
+
+  local_data_.traj_id_ += 1;//完成前端后端搜索后traj_id_+1
 }
 
 void FastPlannerManager::reparamBspline(NonUniformBspline& bspline, double ratio,
@@ -642,38 +683,44 @@ void FastPlannerManager::findCollisionRange(vector<Eigen::Vector3d>& colli_start
 
 // !SECTION
 
+//yaw角规划
 void FastPlannerManager::planYaw(const Eigen::Vector3d& start_yaw) {
   ROS_INFO("plan yaw");
   auto t1 = ros::Time::now();
   // calculate waypoints of heading
 
-  auto&  pos      = local_data_.position_traj_;
-  double duration = pos.getTimeSum();
+  auto&  pos      = local_data_.position_traj_;//获得优化后的轨迹信息
+  double duration = pos.getTimeSum();//获得总时间
 
-  double dt_yaw  = 0.3;
-  int    seg_num = ceil(duration / dt_yaw);
-  dt_yaw         = duration / seg_num;
+  double dt_yaw  = 0.3;//设置时间增量 0.3s
+  //ceil是向上取
+  int    seg_num = ceil(duration / dt_yaw);//计算轨迹分段数，轨迹分段数 = 该轨迹的总运行时间/时间增量
+  dt_yaw         = duration / seg_num;//保证均分 dt_yaw<0.3
 
   const double            forward_t = 2.0;
-  double                  last_yaw  = start_yaw(0);
+  double                  last_yaw  = start_yaw(0);//获得起始yaw角
   vector<Eigen::Vector3d> waypts;
   vector<int>             waypt_idx;
 
-  // seg_num -> seg_num - 1 points for constraint excluding the boundary states
+  // seg_num -> seg_num - 1 points for constraint excluding the boundary states  啥意思
 
-  for (int i = 0; i < seg_num; ++i) {
-    double          tc = i * dt_yaw;
-    Eigen::Vector3d pc = pos.evaluateDeBoorT(tc);
-    double          tf = min(duration, tc + forward_t);
-    Eigen::Vector3d pf = pos.evaluateDeBoorT(tf);
-    Eigen::Vector3d pd = pf - pc;
+  //可以看作以初始yaw角为0度线，计算出后面控制点之间的相对yaw角
+  for (int i = 0; i < seg_num; ++i) {//遍历所有的轨迹分段
+    double          tc = i * dt_yaw;//迭代计算轨迹现在的运行时刻
+    Eigen::Vector3d pc = pos.evaluateDeBoorT(tc);//根据轨迹运行时刻，获得B样条的当前的点
+    double          tf = min(duration, tc + forward_t);//迭代计算轨迹下一段的运行时刻
+    Eigen::Vector3d pf = pos.evaluateDeBoorT(tf);//根据轨迹运行时刻，获得B样条的下一段的点
+    Eigen::Vector3d pd = pf - pc;//作差
 
     Eigen::Vector3d waypt;
+
     if (pd.norm() > 1e-6) {
-      waypt(0) = atan2(pd(1), pd(0));
+      waypt(0) = atan2(pd(1), pd(0));//计算量控制点的夹角，即航向yaw
       waypt(1) = waypt(2) = 0.0;
-      calcNextYaw(last_yaw, waypt(0));
-    } else {
+      calcNextYaw(last_yaw, waypt(0));//计算下一个路径点的航向角yaw
+    } 
+    else
+    {
       waypt = waypts.back();
     }
     waypts.push_back(waypt);
@@ -681,23 +728,36 @@ void FastPlannerManager::planYaw(const Eigen::Vector3d& start_yaw) {
   }
 
   // calculate initial control points with boundary state constraints
-
-  Eigen::MatrixXd yaw(seg_num + 3, 1);
+  // 使用边界状态约束计算初始点
+  Eigen::MatrixXd yaw(seg_num + 3, 1);//点数等于段数+1，而yaw是有三个参数的
   yaw.setZero();
 
+  //3✖3矩阵
   Eigen::Matrix3d states2pts;
-  states2pts << 1.0, -dt_yaw, (1 / 3.0) * dt_yaw * dt_yaw, 1.0, 0.0, -(1 / 6.0) * dt_yaw * dt_yaw, 1.0,
-      dt_yaw, (1 / 3.0) * dt_yaw * dt_yaw;
+  states2pts << 1.0,   -dt_yaw,  (1 / 3.0) * dt_yaw * dt_yaw, 
+                1.0,   0.0,      -(1 / 6.0) * dt_yaw * dt_yaw,
+                1.0,   dt_yaw,   (1 / 3.0) * dt_yaw * dt_yaw;
+
+
+  /*
+    states2pts * start_yaw=
+    1.0,   -dt_yaw,  (1 / 3.0) * dt_yaw * dt_yaw      start_yaw(0)
+    1.0,   0.0,      -(1 / 6.0) * dt_yaw * dt_yaw  *  start_yaw(1) 
+    1.0,   dt_yaw,   (1 / 3.0) * dt_yaw * dt_yaw      start_yaw(2)
+  */             
   yaw.block(0, 0, 3, 1) = states2pts * start_yaw;
 
+  //最后的速度点
   Eigen::Vector3d end_v = local_data_.velocity_traj_.evaluateDeBoorT(duration - 0.1);
+  //最后的速度yaw角
   Eigen::Vector3d end_yaw(atan2(end_v(1), end_v(0)), 0, 0);
   calcNextYaw(last_yaw, end_yaw(0));
   yaw.block(seg_num, 0, 3, 1) = states2pts * end_yaw;
 
-  // solve
+  // solve 求解
   bspline_optimizers_[1]->setWaypoints(waypts, waypt_idx);
   int cost_func = BsplineOptimizer::SMOOTHNESS | BsplineOptimizer::WAYPOINTS;
+  //求解结果
   yaw           = bspline_optimizers_[1]->BsplineOptimizeTraj(yaw, dt_yaw, cost_func, 1, 1);
 
   // update traj info
@@ -706,7 +766,7 @@ void FastPlannerManager::planYaw(const Eigen::Vector3d& start_yaw) {
   local_data_.yawdotdot_traj_ = local_data_.yawdot_traj_.getDerivative();
 
   vector<double> path_yaw;
-  for (int i = 0; i < waypts.size(); ++i) path_yaw.push_back(waypts[i][0]);
+  for (int i = 0; i < waypts.size(); ++i) path_yaw.push_back(waypts[i][0]);//获得规划好的yaw角
   plan_data_.path_yaw_    = path_yaw;
   plan_data_.dt_yaw_      = dt_yaw;
   plan_data_.dt_yaw_path_ = dt_yaw;
@@ -719,6 +779,7 @@ void FastPlannerManager::calcNextYaw(const double& last_yaw, double& yaw) {
 
   double round_last = last_yaw;
 
+  //保证round_last也就是初始角度在[-PI, PI]
   while (round_last < -M_PI) {
     round_last += 2 * M_PI;
   }
@@ -726,7 +787,7 @@ void FastPlannerManager::calcNextYaw(const double& last_yaw, double& yaw) {
     round_last -= 2 * M_PI;
   }
 
-  double diff = yaw - round_last;
+  double diff = yaw - round_last;//yaw角差距
 
   if (fabs(diff) <= M_PI) {
     yaw = last_yaw + diff;

@@ -116,7 +116,7 @@ private:
   int    max_iteration_num_[4];   // stopping criteria that can be used
   double max_iteration_time_[4];  // stopping criteria that can be used
 
-  /* intermediate variables */
+  /* intermediate variables 中间变量 */
   /* buffer for gradient of cost function, to avoid repeated allocation and
    * release of memory */
   vector<Eigen::Vector3d> g_q_;
@@ -137,6 +137,7 @@ private:
   /* cost function */
   /* calculate each part of cost function with control points q as input */
 
+  //静态成员函数
   static double costFunction(const std::vector<double>& x, std::vector<double>& grad, void* func_data);
   void          combineCost(const std::vector<double>& x, vector<double>& grad, double& cost);
 

@@ -88,12 +88,6 @@ plan_env/raycast.h
 plan_env/edt_environment.h
 -
 
-/home/wjp/motion/fast_planner/src/Fast-Planner-master/fast_planner/plan_env/src/obj_predictor.cpp
-plan_env/obj_predictor.h
--
-string
--
-
 /home/wjp/motion/fast_planner/src/Fast-Planner-master/fast_planner/plan_env/src/sdf_map.cpp
 plan_env/sdf_map.h
 /home/wjp/motion/fast_planner/src/Fast-Planner-master/fast_planner/plan_env/src/plan_env/sdf_map.h

@@ -84,11 +84,18 @@ void EDTEnvironment::getSurroundDistance(Eigen::Vector3d pts[2][2][2], double di
   }
 }
 
+
+
+/*
+  values[2][2][2]就是周围的8个点 diff是转换差*10 
+  首先对 values[2][2][2] 数组进行三线性插值，根据 diff 的每个维度的权重，将最近的八个点的值进行加权平均，得到目标位置的值 value。
+*/
 void EDTEnvironment::interpolateTrilinear(double values[2][2][2],
                                                                    const Eigen::Vector3d& diff,
                                                                    double& value,
                                                                    Eigen::Vector3d& grad) {
   // trilinear interpolation
+  //diff当成权重值
   double v00 = (1 - diff(0)) * values[0][0][0] + diff(0) * values[1][0][0];
   double v01 = (1 - diff(0)) * values[0][0][1] + diff(0) * values[1][0][1];
   double v10 = (1 - diff(0)) * values[0][1][0] + diff(0) * values[1][1][0];
@@ -96,8 +103,10 @@ void EDTEnvironment::interpolateTrilinear(double values[2][2][2],
   double v0 = (1 - diff(1)) * v00 + diff(1) * v10;
   double v1 = (1 - diff(1)) * v01 + diff(1) * v11;
 
+  //得到目标位置值
   value = (1 - diff(2)) * v0 + diff(2) * v1;
 
+  //得到梯度值  不太懂
   grad[2] = (v1 - v0) * resolution_inv_;
   grad[1] = ((1 - diff[2]) * (v10 - v00) + diff[2] * (v11 - v01)) * resolution_inv_;
   grad[0] = (1 - diff[2]) * (1 - diff[1]) * (values[1][0][0] - values[0][0][0]);
@@ -107,19 +116,24 @@ void EDTEnvironment::interpolateTrilinear(double values[2][2][2],
   grad[0] *= resolution_inv_;
 }
 
+
 void EDTEnvironment::evaluateEDTWithGrad(const Eigen::Vector3d& pos,
                                                                   double time, double& dist,
                                                                   Eigen::Vector3d& grad) {
   Eigen::Vector3d diff;
   Eigen::Vector3d sur_pts[2][2][2];
+  //获得周围(感觉都不能叫周围 🍀)点的八个点放入sur_pts  diff是转换差*10
   sdf_map_->getSurroundPts(pos, sur_pts, diff);
 
   double dists[2][2][2];
+  //获得这8个点的edt距离值存入dists
   getSurroundDistance(sur_pts, dists);
 
+  //三线性插值
   interpolateTrilinear(dists, diff, dist, grad);
 }
 
+//time=-1
 double EDTEnvironment::evaluateCoarseEDT(Eigen::Vector3d& pos, double time) {
   double d1 = sdf_map_->getDistance(pos);
   if (time < 0.0) {
